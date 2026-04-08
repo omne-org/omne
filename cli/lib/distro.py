@@ -13,9 +13,6 @@ def parse_distro(spec: str) -> tuple[str, str]:
     # Full URL (https or ssh)
     if spec.startswith("https://") or spec.startswith("git@"):
         name = spec.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
-        # SSH URLs use : instead of /
-        if spec.startswith("git@") and "/" not in spec.split(":", 1)[-1].rsplit("/", 1)[0]:
-            name = spec.rsplit(":", 1)[-1].rsplit("/", 1)[-1].removesuffix(".git")
         return spec, name
 
     # org/repo shorthand
