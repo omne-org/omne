@@ -34,11 +34,12 @@ Omne is not one tool -- it is a family of **distros**, each tuned for a domain. 
 
 ## Kernel Architecture
 
-The kernel is three directories, one manifest file, and a CLI.
+The kernel is four directories, one manifest file, and a CLI.
 
 ```
 .omne/
   MANIFEST.md      # kernel entry point
+  core/            # kernel layer (CLI, spec, manifest template — submodule or copied)
   image/           # distro layer (submodule or copied)
   cfg/             # install contract (frozen during active work)
   log/             # runtime (mutable, per-collaborator via branches)
@@ -47,15 +48,16 @@ The kernel is three directories, one manifest file, and a CLI.
 | Component | Nature | Mutability | Git behavior |
 | --- | --- | --- | --- |
 | `MANIFEST.md` | Kernel | Stamped once, rarely updated | Committed |
+| `core/` | Kernel | Updated only on kernel upgrade | Committed or submodule |
 | `image/` | Distro | Updated only on distro upgrade | Committed or submodule |
 | `cfg/` | Install | Frozen during active work | Committed |
 | `log/` | Runtime | Freely mutable, per-collaborator via branches | Committed (embedded) or gitignored (mounted) |
 
 **Bootloader chain:** `CLAUDE.md` -> `.omne/MANIFEST.md` -> `.omne/image/SYSTEM.md` -> distro-specific loading.
 
-**One-level-under rule:** every dir inside `.omne/` allows one level of subdirs. Max depth: 3.
+**One-level-under rule:** every dir inside `.omne/` allows one level of subdirs. Max depth: 3. Exception: `core/` is exempt from depth checking — it is a full kernel repo with its own internal structure (e.g. `core/cli/lib/`).
 
-**Upgrade path:** distro updates only touch `image/`. `cfg/` and `log/` survive untouched. If a breaking `image/` change requires `cfg/` migration, the distro documents it as an explicit migration step.
+**Upgrade path:** distro updates touch `image/` and `core/`. `cfg/` and `log/` survive untouched. If a breaking `image/` change requires `cfg/` migration, the distro documents it as an explicit migration step.
 
 ### image/ Contract
 
@@ -126,23 +128,23 @@ The manifest is descriptive -- it reflects what the distro installed. The kernel
 
 ## Deployment Modes
 
-Two modes. Same kernel structure, different `image/` shipping.
+Two modes. Same kernel structure, different `image/` and `core/` shipping.
 
-| Mode | How image/ ships | When to use |
+| Mode | How image/ and core/ ship | When to use |
 | --- | --- | --- |
-| **Embedded** | Copied into `.omne/image/` | Solo dev, personal vaults, small projects |
-| **Mounted** | Git submodule at `.omne/image/` | Team sharing one distro, coordinated upgrades |
+| **Embedded** | Copied into `.omne/image/` and `.omne/core/` | Solo dev, personal vaults, small projects |
+| **Mounted** | Two first-level git submodules at `.omne/image/` and `.omne/core/` | Team sharing one distro, coordinated upgrades |
 
 **Embedded:**
 - `omne init omne-org/omne-liber`
-- Copies distro content into `image/`. Independent from upstream.
-- Upgrade: `omne upgrade` replaces `image/` with latest distro release. `cfg/` and `log/` untouched.
+- Clones distro with `--recurse-submodules`. Split-copies: distro content (minus `core/`) into `image/`, kernel (`core/`) into `.omne/core/`. Independent from upstream.
+- Upgrade: `omne upgrade` replaces both `image/` and `core/` with latest. `cfg/` and `log/` untouched.
 
 **Mounted:**
 - `omne init omne-org/omne-faber --mounted`
-- Adds distro repo as submodule at `.omne/image/`.
-- Upgrade: `git submodule update`. Version-locked to a commit.
-- Team sees same `image/` across all clones.
+- Adds two independent first-level submodules: distro at `.omne/image/`, kernel at `.omne/core/`. The nested `core/` submodule inside the distro is NOT initialized — no submodule-in-submodule nesting.
+- Upgrade: `git submodule update --remote` on both `.omne/image` and `.omne/core`. Version-locked to a commit.
+- Team sees same `image/` and `core/` across all clones.
 
 Both modes: `cfg/` is always local to the volume (committed, per-project). `log/` is always local (committed in embedded, gitignored in mounted so each clone gets fresh runtime).
 
@@ -227,10 +229,10 @@ omne-org/
 - `cli/` -- `omne init`, `omne upgrade`, `omne validate`
 - `manifest-template.md` -- stamped into volumes during init
 
-**Distro repos** each contain the content that becomes `image/`: `agents/`, `skills/`, `hooks/`, `context-map.md`, `SYSTEM.md`. A distro repo's root is the `image/` content. No wrapper directories.
+**Distro repos** each contain the content that becomes `image/` plus a `core/` submodule pointing to the kernel: `agents/`, `skills/`, `hooks/`, `context-map.md`, `SYSTEM.md`, and `core/` (submodule -> `omne-org/omne`). A distro repo's root is the `image/` content. The `core/` submodule is separated during install — it goes to `.omne/core/`, not `.omne/image/core/`.
 
 **omne-nosce** governs the org itself:
-- `omne-org/` is a volume with `.omne/image/` pointing at omne-nosce
+- `omne-org/` is a volume with `.omne/image/` and `.omne/core/` pointing at omne-nosce and omne respectively
 - Manages updates to the kernel and all distros
 - Distro versioning, release management, cross-distro validation
 
