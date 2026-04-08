@@ -35,6 +35,10 @@ def _make_valid_volume(root: Path) -> None:
     (image / "hooks").mkdir()
     (image / "context-map.md").write_text("# Context Map\n")
     (image / "SYSTEM.md").write_text("# SYSTEM\n")
+    core = omne / "core"
+    core.mkdir()
+    (core / "cli").mkdir()
+    (core / "cli" / "omne.py").write_text("# kernel CLI\n")
     (omne / "MANIFEST.md").write_text(MINIMAL_MANIFEST)
 
 
@@ -113,6 +117,28 @@ class TestValidate(unittest.TestCase):
         (self.tmpdir / ".omne" / "image" / "context-map.md").unlink()
         issues = validate(self.tmpdir)
         self.assertTrue(any("context-map.md" in i for i in issues))
+
+    def test_missing_core_dir(self):
+        _make_valid_volume(self.tmpdir)
+        import shutil
+        shutil.rmtree(self.tmpdir / ".omne" / "core")
+        issues = validate(self.tmpdir)
+        self.assertTrue(any("core/" in i for i in issues))
+
+    def test_core_missing_cli_omne_py(self):
+        _make_valid_volume(self.tmpdir)
+        (self.tmpdir / ".omne" / "core" / "cli" / "omne.py").unlink()
+        issues = validate(self.tmpdir)
+        self.assertTrue(any("core/cli/omne.py" in i for i in issues))
+
+    def test_core_deep_nesting_no_depth_violation(self):
+        """core/ is exempt from depth checks — deep kernel internals are OK."""
+        _make_valid_volume(self.tmpdir)
+        deep = self.tmpdir / ".omne" / "core" / "cli" / "lib"
+        deep.mkdir(parents=True)
+        (deep / "distro.py").write_text("# module\n")
+        issues = validate(self.tmpdir)
+        self.assertEqual(issues, [])
 
 
 if __name__ == "__main__":

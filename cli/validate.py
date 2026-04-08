@@ -4,7 +4,7 @@ import re
 import sys
 from pathlib import Path
 
-REQUIRED_DIRS = ["image", "cfg", "log"]
+REQUIRED_DIRS = ["image", "cfg", "log", "core"]
 REQUIRED_IMAGE_DIRS = ["agents", "skills", "hooks"]
 REQUIRED_IMAGE_FILES = ["context-map.md", "SYSTEM.md"]
 REQUIRED_MANIFEST_FIELDS = ["volume", "distro", "distro-version", "created"]
@@ -57,6 +57,17 @@ def _check_manifest(omne: Path) -> list[str]:
     return issues
 
 
+def _check_core(omne: Path) -> list[str]:
+    """Check core/ contains a valid kernel (at minimum core/cli/omne.py)."""
+    core = omne / "core"
+    if not core.is_dir():
+        return []  # already caught by _check_dirs
+    issues = []
+    if not (core / "cli" / "omne.py").is_file():
+        issues.append("core/ missing required file: core/cli/omne.py")
+    return issues
+
+
 def _check_depth(omne: Path) -> list[str]:
     """Check no directory under .omne/ exceeds MAX_DEPTH levels deep."""
     issues = []
@@ -65,6 +76,9 @@ def _check_depth(omne: Path) -> list[str]:
         if not path.is_dir():
             continue
         relative = path.resolve().relative_to(omne_resolved)
+        # Exempt core/ — it's a full kernel repo with its own internal structure
+        if relative.parts and relative.parts[0] == "core":
+            continue
         depth = len(relative.parts)
         if depth > MAX_DEPTH:
             issues.append(
@@ -82,6 +96,7 @@ def validate(root: Path) -> list[str]:
     issues = []
     issues.extend(_check_dirs(omne))
     issues.extend(_check_image(omne / "image"))
+    issues.extend(_check_core(omne))
     issues.extend(_check_manifest(omne))
     issues.extend(_check_depth(omne))
     return issues
