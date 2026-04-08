@@ -118,12 +118,12 @@ class TestValidate(unittest.TestCase):
         issues = validate(self.tmpdir)
         self.assertTrue(any("context-map.md" in i for i in issues))
 
-    def test_missing_core_dir(self):
+    def test_missing_core_dir_is_warning(self):
         _make_valid_volume(self.tmpdir)
         import shutil
         shutil.rmtree(self.tmpdir / ".omne" / "core")
         issues = validate(self.tmpdir)
-        self.assertTrue(any("core/" in i for i in issues))
+        self.assertTrue(any("warning" in i and "core" in i for i in issues))
 
     def test_core_missing_cli_omne_py(self):
         _make_valid_volume(self.tmpdir)

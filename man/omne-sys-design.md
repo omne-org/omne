@@ -72,15 +72,19 @@ image/
   SYSTEM.md          # single-file schema, first thing loaded after MANIFEST
 ```
 
+The full contract is defined in `docs/distro-spec.md` — the kernel's single-file declarative spec that `omne validate` reads to check distro compliance.
+
 ### CLI
 
-Ships with the kernel repo (`omne-org/omne`). Three operations:
+Ships with the kernel repo (`omne-org/omne`). Five operations:
 
 | Command | What it does |
 | --- | --- |
-| `omne init <distro> [--mounted]` | Scaffold `.omne/`, copy or submodule `image/`, stamp `MANIFEST.md`, create `cfg/` and `log/`, write `CLAUDE.md` bootloader |
-| `omne upgrade` | Pull latest `image/` (submodule update or copy-replace). `cfg/` and `log/` untouched |
-| `omne validate` | Check volume integrity -- dir structure, max depth, manifest fields, stage declarations |
+| `omne init <distro> [--mounted]` | Scaffold `.omne/`, independently clone distro to `image/` and kernel to `core/`, introspect and stamp `MANIFEST.md`, seed `cfg/` from defaults, create `log/` subdirs, write `CLAUDE.md` bootloader |
+| `omne upgrade` | Pull latest `image/` and `core/` independently. `cfg/` and `log/` untouched |
+| `omne validate` | Two-layer check: volume integrity (dirs, manifest, depth) + distro compliance (6 quality gates) |
+| `omne remove` | Tear down `.omne/` and `CLAUDE.md`, clean up submodules if mounted |
+| `omne reset` | Re-stamp manifest, re-seed `cfg/` and `log/` from distro defaults. `image/` and `core/` untouched |
 
 ## MANIFEST.md
 
@@ -137,14 +141,18 @@ Two modes. Same kernel structure, different `image/` and `core/` shipping.
 
 **Embedded:**
 - `omne init omne-org/omne-liber`
-- Clones distro with `--recurse-submodules`. Split-copies: distro content (minus `core/`) into `image/`, kernel (`core/`) into `.omne/core/`. Independent from upstream.
-- Upgrade: `omne upgrade` replaces both `image/` and `core/` with latest. `cfg/` and `log/` untouched.
+- Clones distro and kernel as two independent operations. Distro content (minus `.git`, `core`) goes to `image/`. Kernel goes to `core/`. No `--recurse-submodules`, no split-copy.
+- Kernel URL: read from `kernel-url` field in `SYSTEM.md` frontmatter, defaults to `https://github.com/omne-org/omne.git`.
+- After install: seeds `cfg/` from `image/defaults/`, creates `log/` subdirs from `log-dirs` in `SYSTEM.md`.
+- Upgrade: `omne upgrade` re-clones and replaces `image/` and `core/` independently. `cfg/` and `log/` untouched.
 
 **Mounted:**
 - `omne init omne-org/omne-faber --mounted`
-- Adds two independent first-level submodules: distro at `.omne/image/`, kernel at `.omne/core/`. The nested `core/` submodule inside the distro is NOT initialized — no submodule-in-submodule nesting.
+- Adds two independent first-level submodules: distro at `.omne/image/`, kernel at `.omne/core/`. Kernel URL resolved same way as embedded.
 - Upgrade: `git submodule update --remote` on both `.omne/image` and `.omne/core`. Version-locked to a commit.
 - Team sees same `image/` and `core/` across all clones.
+
+**Distro repos do not embed the kernel.** The `core/` submodule inside distro repos is no longer required. Kernel and distro are independent packages installed separately by `omne init`.
 
 Both modes: `cfg/` is always local to the volume (committed, per-project). `log/` is always local (committed in embedded, gitignored in mounted so each clone gets fresh runtime).
 

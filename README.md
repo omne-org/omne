@@ -4,19 +4,20 @@ Kernel-based, MAS-native operating system for managing work across devices and c
 
 ## What This Repo Contains
 
-- `manifest-template.md` — template stamped into volumes during `omne init`
-- `cli/` — CLI tools (`omne init`, `omne upgrade`, `omne validate`)
-- `spec/` — system design specification
+- `docs/` — AI-facing specs and templates
+  - `distro-spec.md` — declarative contract defining what valid distros must contain
+  - `manifest-template.md` — template stamped into volumes during `omne init`
+- `man/` — human-facing documentation
+  - `omne-sys-design.md` — full system design specification
+- `cli/` — CLI tools (`omne init`, `omne upgrade`, `omne validate`, `omne remove`, `omne reset`)
 - `tests/` — test suite
 
 ## Usage
 
 ```bash
 python cli/omne.py init <distro> [--mounted]   # scaffold a new volume
-python cli/omne.py upgrade                       # update distro image
-python cli/omne.py validate                      # check volume integrity
+python cli/omne.py upgrade                       # update distro image and kernel
+python cli/omne.py validate                      # check volume + distro integrity
+python cli/omne.py remove                        # tear down the volume
+python cli/omne.py reset                         # re-stamp manifest, re-seed cfg/log
 ```
-
-## See Also
-
-- `spec/omne-sys-design.md` — full system design

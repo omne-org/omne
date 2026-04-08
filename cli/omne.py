@@ -4,6 +4,8 @@ Usage:
     python cli/omne.py init <distro> [--mounted]
     python cli/omne.py upgrade
     python cli/omne.py validate
+    python cli/omne.py remove
+    python cli/omne.py reset
 """
 
 import argparse
@@ -26,10 +28,16 @@ def main() -> None:
     p_init.add_argument("--mounted", action="store_true", help="Use submodule (mounted) mode")
 
     # upgrade
-    sub.add_parser("upgrade", help="Upgrade distro image to latest")
+    sub.add_parser("upgrade", help="Upgrade distro image and kernel to latest")
 
     # validate
     sub.add_parser("validate", help="Check volume integrity")
+
+    # remove
+    sub.add_parser("remove", help="Tear down the omne volume")
+
+    # reset
+    sub.add_parser("reset", help="Re-stamp manifest and re-seed cfg/log")
 
     args = parser.parse_args()
 
@@ -48,6 +56,14 @@ def main() -> None:
     elif args.command == "validate":
         from validate import main as validate_main
         validate_main()
+
+    elif args.command == "remove":
+        from remove import remove
+        remove()
+
+    elif args.command == "reset":
+        from reset import reset
+        reset()
 
 
 if __name__ == "__main__":

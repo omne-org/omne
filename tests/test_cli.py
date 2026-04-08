@@ -27,6 +27,8 @@ class TestCLIDispatch(unittest.TestCase):
         self.assertIn("init", output)
         self.assertIn("upgrade", output)
         self.assertIn("validate", output)
+        self.assertIn("remove", output)
+        self.assertIn("reset", output)
 
     def test_validate_in_non_volume(self):
         result = self._run("validate")

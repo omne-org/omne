@@ -9,27 +9,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from lib.distro import parse_distro
-from lib.manifest import stamp
-from lib.scaffold import create_volume_dirs, write_bootloader, write_manifest
+from lib.manifest import introspect_image, stamp
 
+_DEFAULT_KERNEL_URL = "https://github.com/omne-org/omne.git"
 
-def _extract_kernel_url(image_dir: Path) -> str | None:
-    """Extract the kernel (core/) submodule URL from the distro's .gitmodules."""
-    gitmodules = image_dir / ".gitmodules"
-    if not gitmodules.is_file():
-        return None
-    content = gitmodules.read_text(encoding="utf-8")
-    # Look for [submodule "core"] section and its url
-    in_core = False
-    for line in content.splitlines():
-        stripped = line.strip()
-        if stripped == '[submodule "core"]':
-            in_core = True
-        elif stripped.startswith("["):
-            in_core = False
-        elif in_core and stripped.startswith("url"):
-            return stripped.split("=", 1)[1].strip()
-    return None
+BOOTLOADER_CONTENT = """\
+# CLAUDE.md
+
+> Bootloader — loads the omne kernel.
+
+Read `.omne/MANIFEST.md` and follow its boot sequence.
+"""
 
 
 def _read_distro_version(image_dir: Path) -> str:
@@ -42,6 +32,18 @@ def _read_distro_version(image_dir: Path) -> str:
         if line.startswith("distro-version:"):
             return line.split(":", 1)[1].strip()
     return "0.0.0"
+
+
+def _read_kernel_url(image_dir: Path) -> str:
+    """Read kernel-url from SYSTEM.md frontmatter, or return default."""
+    system_md = image_dir / "SYSTEM.md"
+    if not system_md.is_file():
+        return _DEFAULT_KERNEL_URL
+    content = system_md.read_text(encoding="utf-8")
+    for line in content.splitlines():
+        if line.startswith("kernel-url:"):
+            return line.split(":", 1)[1].strip()
+    return _DEFAULT_KERNEL_URL
 
 
 def init(distro_spec: str, mounted: bool = False, root: Path | None = None) -> None:
@@ -57,57 +59,99 @@ def init(distro_spec: str, mounted: bool = False, root: Path | None = None) -> N
     url, name = parse_distro(distro_spec)
 
     # Create directory structure
-    create_volume_dirs(root)
+    omne.mkdir(exist_ok=True)
+    (omne / "cfg").mkdir(exist_ok=True)
+    (omne / "log").mkdir(exist_ok=True)
 
-    # Install image and core (split-install)
     image = omne / "image"
     core = omne / "core"
+
     if mounted:
-        # Add distro as first-level submodule at .omne/image/
+        # Two independent submodule adds
         subprocess.run(
-            ["git", "-c", "protocol.file.allow=always", "submodule", "add", url, ".omne/image"],
+            ["git", "-c", "protocol.file.allow=always",
+             "submodule", "add", url, ".omne/image"],
             cwd=str(root), check=True,
         )
-        # Extract kernel URL from distro's .gitmodules (if core/ submodule exists)
-        kernel_url = _extract_kernel_url(image)
-        if kernel_url:
-            subprocess.run(
-                ["git", "-c", "protocol.file.allow=always", "submodule", "add", kernel_url, ".omne/core"],
-                cwd=str(root), check=True,
-            )
+        kernel_url = _read_kernel_url(image)
+        subprocess.run(
+            ["git", "-c", "protocol.file.allow=always",
+             "submodule", "add", kernel_url, ".omne/core"],
+            cwd=str(root), check=True,
+        )
     else:
+        # Two independent clones — no --recurse-submodules, no split-copy
         with tempfile.TemporaryDirectory() as tmp:
-            tmp_clone = Path(tmp) / "distro"
+            # Clone distro -> image/
+            tmp_distro = Path(tmp) / "distro"
             subprocess.run(
                 ["git", "-c", "protocol.file.allow=always",
-                 "clone", "--recurse-submodules", url, str(tmp_clone)],
+                 "clone", url, str(tmp_distro)],
                 check=True,
             )
-            # Split-copy: distro content (minus core/) -> image/
             shutil.copytree(
-                tmp_clone, image,
+                tmp_distro, image,
                 ignore=shutil.ignore_patterns(".git", "core"),
                 dirs_exist_ok=True,
             )
-            # Split-copy: kernel (core/) -> .omne/core/ (if present)
-            tmp_core = tmp_clone / "core"
-            if tmp_core.is_dir():
-                shutil.copytree(
-                    tmp_core, core,
-                    ignore=shutil.ignore_patterns(".git"),
-                    dirs_exist_ok=True,
-                )
-            # Record origin URL for upgrade
+            # Record distro origin URL for upgrade
             (image / ".omne-origin").write_text(url, encoding="utf-8")
 
-    # Stamp and write manifest
+            # Clone kernel -> core/
+            kernel_url = _read_kernel_url(image)
+            tmp_kernel = Path(tmp) / "kernel"
+            subprocess.run(
+                ["git", "-c", "protocol.file.allow=always",
+                 "clone", kernel_url, str(tmp_kernel)],
+                check=True,
+            )
+            shutil.copytree(
+                tmp_kernel, core,
+                ignore=shutil.ignore_patterns(".git"),
+                dirs_exist_ok=True,
+            )
+            # Record kernel origin URL for upgrade
+            (core / ".omne-origin").write_text(kernel_url, encoding="utf-8")
+
+    # Seed cfg/ from distro defaults (if present)
+    defaults = image / "defaults"
+    cfg = omne / "cfg"
+    if defaults.is_dir():
+        for src in defaults.rglob("*"):
+            if src.is_file():
+                rel = src.relative_to(defaults)
+                dest = cfg / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
+
+    # Seed log/ subdirectories from SYSTEM.md log-dirs field
+    log = omne / "log"
+    system_md = image / "SYSTEM.md"
+    if system_md.is_file():
+        for line in system_md.read_text(encoding="utf-8").splitlines():
+            if line.startswith("log-dirs:"):
+                raw = line.split(":", 1)[1].strip()
+                if raw.startswith("[") and raw.endswith("]"):
+                    for d in raw[1:-1].split(","):
+                        d = d.strip()
+                        if d:
+                            (log / d).mkdir(parents=True, exist_ok=True)
+                break
+
+    # Introspect the installed distro and stamp manifest
     version = _read_distro_version(image)
     volume_name = root.name
-    manifest_content = stamp(volume_name, name, version)
-    write_manifest(root, manifest_content)
+    intro = introspect_image(image)
+    manifest_content = stamp(
+        volume_name, name, version,
+        stages=intro["stages"],
+        agents=intro["agents"],
+        context_routing=intro["context_routing"],
+    )
+    (omne / "MANIFEST.md").write_text(manifest_content, encoding="utf-8")
 
     # Write bootloader
-    write_bootloader(root)
+    (root / "CLAUDE.md").write_text(BOOTLOADER_CONTENT, encoding="utf-8")
 
     print(f"Initialized omne volume '{volume_name}' with distro '{name}' ({'mounted' if mounted else 'embedded'})")
 

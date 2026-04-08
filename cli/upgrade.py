@@ -1,4 +1,4 @@
-"""omne upgrade — update distro image to latest."""
+"""omne upgrade — update distro image and kernel to latest."""
 
 import shutil
 import subprocess
@@ -19,16 +19,16 @@ def _rmtree_cmd() -> list[str]:
     return [str(LIB / "rmtree.sh")]
 
 
-def _read_origin_url(image: Path) -> str | None:
-    """Read the distro clone URL from .omne-origin file."""
-    origin_file = image / ".omne-origin"
+def _read_origin_url(target: Path) -> str | None:
+    """Read the clone URL from .omne-origin file."""
+    origin_file = target / ".omne-origin"
     if origin_file.is_file():
         return origin_file.read_text(encoding="utf-8").strip()
     return None
 
 
 def upgrade(root: Path | None = None) -> None:
-    """Upgrade the distro image to latest."""
+    """Upgrade the distro image and kernel to latest."""
     if root is None:
         root = Path.cwd()
 
@@ -38,55 +38,61 @@ def upgrade(root: Path | None = None) -> None:
         sys.exit(1)
 
     image = omne / "image"
-
     core = omne / "core"
 
     if is_mounted(omne):
-        # Mounted mode: update both submodules
+        # Mounted mode: update submodules independently
         print("Upgrading (mounted mode)...")
         subprocess.run(
             ["git", "submodule", "update", "--remote", ".omne/image"],
             cwd=str(root), check=True,
         )
-        if (root / ".gitmodules").is_file() and ".omne/core" in (root / ".gitmodules").read_text(encoding="utf-8"):
+        gitmodules = root / ".gitmodules"
+        if gitmodules.is_file() and ".omne/core" in gitmodules.read_text(encoding="utf-8"):
             subprocess.run(
                 ["git", "submodule", "update", "--remote", ".omne/core"],
                 cwd=str(root), check=True,
             )
         print("Upgrade complete (submodules updated).")
     else:
-        # Embedded mode: re-clone and split-replace
-        origin_url = _read_origin_url(image)
-        if origin_url is None:
-            print("Error: cannot determine distro URL for upgrade (no .omne-origin file)", file=sys.stderr)
+        # Embedded mode: re-clone and replace independently
+        image_url = _read_origin_url(image)
+        if image_url is None:
+            print("Error: cannot determine distro URL (no .omne/image/.omne-origin)", file=sys.stderr)
             sys.exit(1)
 
-        print(f"Upgrading (embedded mode) from {origin_url}...")
+        print(f"Upgrading (embedded mode)...")
         with tempfile.TemporaryDirectory() as tmp:
-            tmp_clone = Path(tmp) / "distro"
+            # Replace image/
+            tmp_distro = Path(tmp) / "distro"
             subprocess.run(
                 ["git", "-c", "protocol.file.allow=always",
-                 "clone", "--recurse-submodules", origin_url, str(tmp_clone)],
+                 "clone", image_url, str(tmp_distro)],
                 check=True,
             )
-            # Remove old image and core
             subprocess.run(_rmtree_cmd() + [str(image)], check=True)
-            if core.is_dir():
-                subprocess.run(_rmtree_cmd() + [str(core)], check=True)
-            # Split-copy: distro content (minus core/) -> image/
             shutil.copytree(
-                tmp_clone, image,
+                tmp_distro, image,
                 ignore=shutil.ignore_patterns(".git", "core"),
             )
-            # Split-copy: kernel (core/) -> .omne/core/ (if present)
-            tmp_core = tmp_clone / "core"
-            if tmp_core.is_dir():
+            (image / ".omne-origin").write_text(image_url, encoding="utf-8")
+
+            # Replace core/ (if origin is known)
+            core_url = _read_origin_url(core) if core.is_dir() else None
+            if core_url:
+                tmp_kernel = Path(tmp) / "kernel"
+                subprocess.run(
+                    ["git", "-c", "protocol.file.allow=always",
+                     "clone", core_url, str(tmp_kernel)],
+                    check=True,
+                )
+                subprocess.run(_rmtree_cmd() + [str(core)], check=True)
                 shutil.copytree(
-                    tmp_core, core,
+                    tmp_kernel, core,
                     ignore=shutil.ignore_patterns(".git"),
                 )
-            # Re-write origin file
-            (image / ".omne-origin").write_text(origin_url, encoding="utf-8")
+                (core / ".omne-origin").write_text(core_url, encoding="utf-8")
+
         print("Upgrade complete (image and core replaced).")
 
 

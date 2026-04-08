@@ -11,27 +11,48 @@ sys.path.insert(0, str(ROOT / "cli"))
 
 from upgrade import upgrade
 
+_GIT_ENV = {
+    **__import__("os").environ,
+    "GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "t@t",
+    "GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "t@t",
+}
 
-def _create_fake_distro(tmpdir: Path) -> str:
-    """Create a git repo mimicking a distro. Returns file:// URL."""
+
+def _create_fake_kernel(tmpdir: Path) -> str:
+    """Create a standalone fake kernel git repo. Returns file:// URL."""
+    kernel = tmpdir / "fake-kernel"
+    kernel.mkdir()
+    (kernel / "cli").mkdir()
+    (kernel / "cli" / "omne.py").write_text("# v1\n")
+    (kernel / "docs").mkdir()
+    (kernel / "docs" / "manifest-template.md").write_text("# Template\n")
+    (kernel / "docs" / "distro-spec.md").write_text("# Distro Spec\n")
+    subprocess.run(["git", "init"], cwd=str(kernel), capture_output=True, check=True)
+    subprocess.run(["git", "add", "."], cwd=str(kernel), capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "v1"], cwd=str(kernel), capture_output=True, check=True, env=_GIT_ENV)
+    return f"file:///{kernel.as_posix()}"
+
+
+def _create_fake_distro(tmpdir: Path, kernel_url: str | None = None) -> str:
+    """Create a fake distro git repo. Returns file:// URL."""
     distro = tmpdir / "fake-distro"
     distro.mkdir()
     (distro / "agents").mkdir()
     (distro / "skills").mkdir()
     (distro / "hooks").mkdir()
-    (distro / "context-map.md").write_text("# Context Map\n")
-    (distro / "SYSTEM.md").write_text("---\ndistro-version: 0.1.0\n---\n# SYSTEM\n")
-    # Add .gitkeep files so git tracks empty dirs
     for d in ["agents", "skills", "hooks"]:
         (distro / d / ".gitkeep").write_text("")
-    env = {
-        **__import__("os").environ,
-        "GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "t@t",
-        "GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "t@t",
-    }
+    (distro / "context-map.md").write_text("# Context Map\n")
+
+    system_content = "---\ndistro-version: 0.1.0\n"
+    if kernel_url:
+        system_content += f"kernel-url: {kernel_url}\n"
+    system_content += "---\n# SYSTEM\n"
+    (distro / "SYSTEM.md").write_text(system_content)
+
     subprocess.run(["git", "init"], cwd=str(distro), capture_output=True, check=True)
     subprocess.run(["git", "add", "."], cwd=str(distro), capture_output=True, check=True)
-    subprocess.run(["git", "commit", "-m", "v1"], cwd=str(distro), capture_output=True, check=True, env=env)
+    subprocess.run(["git", "commit", "-m", "v1"], cwd=str(distro), capture_output=True, check=True, env=_GIT_ENV)
     return f"file:///{distro.as_posix()}"
 
 
@@ -48,19 +69,15 @@ def _init_embedded_volume(tmpdir: Path, distro_url: str) -> Path:
 class TestUpgradeEmbedded(unittest.TestCase):
     def setUp(self):
         self.tmpdir = Path(tempfile.mkdtemp())
-        self.distro_url = _create_fake_distro(self.tmpdir)
+        self.kernel_url = _create_fake_kernel(self.tmpdir)
+        self.distro_url = _create_fake_distro(self.tmpdir, kernel_url=self.kernel_url)
         self.volume = _init_embedded_volume(self.tmpdir, self.distro_url)
 
-        # Now update the distro repo (add a new file)
+        # Update the distro repo (add a new file)
         distro_path = self.tmpdir / "fake-distro"
         (distro_path / "new-skill.md").write_text("# New\n")
-        env = {
-            **__import__("os").environ,
-            "GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "t@t",
-            "GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "t@t",
-        }
         subprocess.run(["git", "add", "."], cwd=str(distro_path), capture_output=True, check=True)
-        subprocess.run(["git", "commit", "-m", "v2"], cwd=str(distro_path), capture_output=True, check=True, env=env)
+        subprocess.run(["git", "commit", "-m", "v2"], cwd=str(distro_path), capture_output=True, check=True, env=_GIT_ENV)
 
     def tearDown(self):
         import shutil
@@ -87,62 +104,19 @@ class TestUpgradeEmbedded(unittest.TestCase):
 
 
 class TestUpgradeEmbeddedWithCore(unittest.TestCase):
-    """Test embedded upgrade with distro that has core/ submodule."""
+    """Test embedded upgrade refreshes core independently."""
 
     def setUp(self):
         self.tmpdir = Path(tempfile.mkdtemp())
-        # Create fake kernel first
-        self.kernel = self.tmpdir / "fake-kernel"
-        self.kernel.mkdir()
-        (self.kernel / "cli").mkdir()
-        (self.kernel / "cli" / "omne.py").write_text("# v1\n")
-        (self.kernel / "manifest-template.md").write_text("# Template\n")
-        env = {
-            **__import__("os").environ,
-            "GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "t@t",
-            "GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "t@t",
-        }
-        subprocess.run(["git", "init"], cwd=str(self.kernel), capture_output=True, check=True)
-        subprocess.run(["git", "add", "."], cwd=str(self.kernel), capture_output=True, check=True)
-        subprocess.run(["git", "commit", "-m", "v1"], cwd=str(self.kernel), capture_output=True, check=True, env=env)
-        kernel_url = f"file:///{self.kernel.as_posix()}"
-
-        # Create fake distro with core/ submodule
-        distro = self.tmpdir / "fake-distro"
-        distro.mkdir()
-        (distro / "agents").mkdir()
-        (distro / "skills").mkdir()
-        (distro / "hooks").mkdir()
-        for d in ["agents", "skills", "hooks"]:
-            (distro / d / ".gitkeep").write_text("")
-        (distro / "context-map.md").write_text("# Context Map\n")
-        (distro / "SYSTEM.md").write_text("---\ndistro-version: 0.1.0\n---\n# SYSTEM\n")
-        subprocess.run(["git", "init"], cwd=str(distro), capture_output=True, check=True)
-        subprocess.run(["git", "add", "."], cwd=str(distro), capture_output=True, check=True)
-        subprocess.run(["git", "commit", "-m", "v1"], cwd=str(distro), capture_output=True, check=True, env=env)
-        subprocess.run(
-            ["git", "-c", "protocol.file.allow=always", "submodule", "add", kernel_url, "core"],
-            cwd=str(distro), capture_output=True, check=True,
-        )
-        subprocess.run(["git", "add", "."], cwd=str(distro), capture_output=True, check=True)
-        subprocess.run(["git", "commit", "-m", "add core"], cwd=str(distro), capture_output=True, check=True, env=env)
-        self.distro_url = f"file:///{distro.as_posix()}"
-
-        # Init volume
+        self.kernel_url = _create_fake_kernel(self.tmpdir)
+        self.distro_url = _create_fake_distro(self.tmpdir, kernel_url=self.kernel_url)
         self.volume = _init_embedded_volume(self.tmpdir, self.distro_url)
 
         # Update kernel repo
-        (self.kernel / "cli" / "omne.py").write_text("# v2 updated\n")
-        subprocess.run(["git", "add", "."], cwd=str(self.kernel), capture_output=True, check=True)
-        subprocess.run(["git", "commit", "-m", "v2"], cwd=str(self.kernel), capture_output=True, check=True, env=env)
-
-        # Update distro submodule ref
-        subprocess.run(
-            ["git", "-c", "protocol.file.allow=always", "submodule", "update", "--remote", "core"],
-            cwd=str(distro), capture_output=True, check=True,
-        )
-        subprocess.run(["git", "add", "."], cwd=str(distro), capture_output=True, check=True)
-        subprocess.run(["git", "commit", "-m", "bump core"], cwd=str(distro), capture_output=True, check=True, env=env)
+        kernel_path = self.tmpdir / "fake-kernel"
+        (kernel_path / "cli" / "omne.py").write_text("# v2 updated\n")
+        subprocess.run(["git", "add", "."], cwd=str(kernel_path), capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", "v2"], cwd=str(kernel_path), capture_output=True, check=True, env=_GIT_ENV)
 
     def tearDown(self):
         import shutil

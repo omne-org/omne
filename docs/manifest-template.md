@@ -29,15 +29,15 @@ created: {{created}}
 
 ## Stages
 
-Declared by distro, listed here for agent discoverability.
+{{stages}}
 
 ## Agents
 
-Summary of available agents and their roles (populated from `image/`).
+{{agents}}
 
 ## Context Routing
 
-See `image/context-map.md` for which agent reads what.
+{{context-routing}}
 
 ## Depth Rule
 
