@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Validate manifest.json version matches tag
+        run: |
+          MANIFEST_VERSION=$(python -c "import json; print(json.load(open('manifest.json'))['version'])")
+          if [ "$MANIFEST_VERSION" != "${{ steps.version.outputs.VERSION }}" ]; then
+            echo "ERROR: manifest.json version ($MANIFEST_VERSION) does not match tag (${{ steps.version.outputs.VERSION }})"
+            exit 1
+          fi
+
+      - name: Package release artifact
+        run: |
+          mkdir -p core
+          cp manifest.json core/
+          cp manifest-template.md core/
+          cp README.md core/
+          cp CLAUDE.md core/
+          cp -r skills core/
+          cp -r hooks core/
+          cp -r scripts core/
+          cp -r docs core/
+          cp -r man core/
+          tar -czf omne-v${{ steps.version.outputs.VERSION }}.tar.gz core/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: omne-v${{ steps.version.outputs.VERSION }}.tar.gz
+          generate_release_notes: true
