@@ -1,23 +1,22 @@
 # omne
 
-Kernel-based, MAS-native operating system for managing work across devices and collaborators.
+Kernel for the omne operating system. Ships as a release artifact into `.omne/core/` inside volumes.
 
-## What This Repo Contains
+## Contents
 
-- `docs/` — AI-facing specs and templates
-  - `distro-spec.md` — declarative contract defining what valid distros must contain
-  - `manifest-template.md` — template stamped into volumes during `omne init`
-- `man/` — human-facing documentation
-  - `omne-sys-design.md` — full system design specification
-- `cli/` — CLI tools (`omne init`, `omne upgrade`, `omne validate`, `omne remove`, `omne reset`)
-- `tests/` — test suite
+- `manifest.json` — kernel version and gate runner path
+- `manifest-template.md` — template stamped into `MANIFEST.md` during `omne init`
+- `skills/` — kernel-level skills available to agents in every volume
+- `hooks/` — boot hooks (session_start) for automatic kernel loading
+- `scripts/` — shared scripts used by hooks and skills
+- `docs/` — agent-readable documentation
+- `man/` — human-readable reference
 
-## Usage
+## Manual
 
-```bash
-python cli/omne.py init <distro> [--mounted]   # scaffold a new volume
-python cli/omne.py upgrade                       # update distro image and kernel
-python cli/omne.py validate                      # check volume + distro integrity
-python cli/omne.py remove                        # tear down the volume
-python cli/omne.py reset                         # re-stamp manifest, re-seed cfg/log
-```
+- [Kernel Layout](man/kernel-layout.md) — what each directory and file does
+- [Gate Protocol](man/gate-protocol.md) — how the kernel calls distro validators
+
+## See Also
+
+- `spec/omne-sys-design.md` — full system design (not included in release artifact)
