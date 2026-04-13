@@ -42,7 +42,7 @@ Each file in `agents/*.md` must have YAML frontmatter with a `name` key.
 
 ## Skill Contract
 
-Each file in `skills/*.md` must have YAML frontmatter with an `agent` key referencing a valid agent name.
+Skills follow the Claude Code layout: each skill lives at `skills/<name>/SKILL.md`. Every `SKILL.md` must have YAML frontmatter with `name` and `description` keys (required by Claude Code), plus an `agent` key referencing a valid agent name.
 
 ## Hook Contract
 
