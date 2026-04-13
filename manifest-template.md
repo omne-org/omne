@@ -23,9 +23,11 @@ created: {{created}}
 
 ## Boot Sequence
 
-1. `CLAUDE.md` loads this file
-2. This file loads `.omne/image/SYSTEM.md`
-3. `SYSTEM.md` loads distro-specific agents and context map
+1. Volume `CLAUDE.md` imports this file via `@.omne/MANIFEST.md`
+2. This file imports `@image/SYSTEM.md` below
+3. `SYSTEM.md` imports the distro context map
+
+@image/SYSTEM.md
 
 ## Stages
 
